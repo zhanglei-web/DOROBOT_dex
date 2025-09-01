@@ -30,7 +30,19 @@ from operating_platform.dataset.dorobot_dataset import *
 from operating_platform.core.daemon import Daemon
 from operating_platform.core.record import Record, RecordConfig
 
-DEFAULT_FPS=30
+from operating_platform.robot.robots.dexterous_hand_v1.plot import DexterousHandVisualizer
+
+DEFAULT_FPS=20
+
+
+_global_visualizer = None  
+  
+def get_visualizer():  
+    global _global_visualizer  
+    if _global_visualizer is None:  
+        _global_visualizer = DexterousHandVisualizer()  
+    return _global_visualizer
+
 
 @cache
 def is_headless():
@@ -251,7 +263,7 @@ class Coordinator:
             # resume 变量现在可用于后续逻辑
             print(f"Resume mode: {'Enabled' if resume else 'Disabled'}")
 
-            record_cfg = RecordConfig(fps=DEFAULT_FPS, repo_id=repo_id, resume=False, root=target_dir)
+            record_cfg = RecordConfig(fps=DEFAULT_FPS, repo_id=repo_id, resume=resume, root=target_dir)
             self.record = Record(fps=DEFAULT_FPS, robot=self.daemon.robot, daemon=self.daemon, record_cfg = record_cfg, record_cmd=msg)
             
             self.record.start()
@@ -391,27 +403,55 @@ def main(cfg: ControlPipelineConfig):
     coordinator.stream_info(daemon.cameras_info)
     coordinator.update_stream_info_to_server()
 
+
+
+
+    # frame_counter = 0 
     try:
         while True:
             daemon.update()
+            # print(1.0/(end-start))
             observation = daemon.get_observation()
-            # print("get observation")
+            # print(observation['observation.state.wrist'])
+            # end=time.time()
+            # print(time.time())
             if observation is not None:
                 image_keys = [key for key in observation if "image" in key]
                 for i, key in enumerate(image_keys, start=1):
                     img = cv2.cvtColor(observation[key].numpy(), cv2.COLOR_RGB2BGR) 
 
-                    name = key[len("observation.images."):]
-                    coordinator.update_stream(name, img)
+                    name = key[len("observation.images."):] 
+                    # if frame_counter % 3 == 0:  # 每隔一帧处理一次  
+                    #     coordinator.update_stream(name, img)  
+                    # frame_counter += 1
 
                     if not is_headless():
                         # print(f"will show image, name:{name}")
                         cv2.imshow(name, img)
                         cv2.waitKey(1)
                         # print("show image succese")
+            # if observation is not None:  
+            #     # 直接从 daemon.robot 访问全局数据  
+            #     if hasattr(daemon.robot, '__class__') and daemon.robot.__class__.__name__ == 'DexterousHandManipulator':  
+            #         # 导入模块以访问全局变量  
+            #         from operating_platform.robot.robots.dexterous_hand_v1 import manipulator as dh_module  
                     
-            else:
-                print("observation is none")
+            #         # 检查数据是否存在  
+            #         has_left_wrist = 'wrist_left' in dh_module.recv_wrist_data  
+            #         has_right_wrist = 'wrist_right' in dh_module.recv_wrist_data
+            #         has_left_finger = 'finger_left' in dh_module.recv_finger_data  
+            #         has_right_finger = 'finger_right' in dh_module.recv_finger_data    
+            #         has_head = 'head_pose' in dh_module.recv_head_data  
+                    
+            #         if has_left_wrist and has_right_wrist and has_head and has_left_finger and has_right_finger:  
+            #             visualizer = get_visualizer()
+            
+            #             visualizer.update_poses(dh_module.recv_wrist_data, dh_module.recv_head_data,dh_module.recv_finger_data)
+            
+            
+                     
+            # else:
+            #     print("observation is none")
             
     except KeyboardInterrupt:
         print("coordinator and daemon stop")

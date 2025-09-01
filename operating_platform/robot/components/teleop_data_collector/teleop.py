@@ -75,6 +75,7 @@ class Manus_ZMQSubscriber:
             message = self.socket.recv()
             message = message.decode('utf-8')
             # print("message:", message)
+            # print("time for manus: ", time.time())
             message = message.split(",") 
             if len(message) == 40:
                 self._joints = list(map(float,message[0:40]))  #Get the right hand data (second half of the 40 datapoints coming in)
@@ -149,6 +150,7 @@ class Vive_ZMQSubscriber:
         self.socket.setsockopt_string(zmq.SUBSCRIBE, "chest")
         # self.socket.setsockopt(zmq.CONFLATE, True)     
         # self.socket.connect("tcp://localhost:8000")
+        self.update=True
 
         self._subscriber_thread = threading.Thread(target=self._update_value)
         self._subscriber_thread.start()
@@ -163,16 +165,25 @@ class Vive_ZMQSubscriber:
 
         self.head_pos=None
         self.head_ori=None
+
+        
     
 
     #This thread runs in the background and receives the messages
     def _update_value(self):
         while True:
-            # message = self.socket.recv()
+            t1=time.time()
+            message = self.socket.recv()
+            # print("message:", message)
+            self.update=False
+            # print("self.update before: ",self.update)
+            
             message = self.socket.recv_string()
             # 拆分 topic 和 JSON 数据
             topic, json_data = message.split(' ', 1)
             pose = json.loads(json_data)
+            
+            # self.update=True
             # import pdb;pdb.set_trace()
           
 
@@ -180,6 +191,8 @@ class Vive_ZMQSubscriber:
                 self.left_pos=pose["position"]
                 self.left_ori=pose["orientation"]
                 # print("left message: ",message)
+                self.update=True
+                # print("self.update after: ",self.update)
            
             elif topic == 'right_elbow':
                 self.right_pos=pose["position"]
@@ -189,6 +202,13 @@ class Vive_ZMQSubscriber:
                 self.head_pos=pose["position"]
                 self.head_ori=pose["orientation"]
                 # print("head message: ", message)
+            
+            ##for debug\
+            # dt=time.time()-t1
+            # print("delta t is: ", dt)
+            # self.update=True
+            # print("self.update after: ",self.update)
+
 
             # message = message.decode('utf-8')
             # message = message.split(",") 
@@ -228,7 +248,10 @@ class MocapData:
         # print(np.array(self.vive_zmq_sub.left_ori))
         quat = [self.vive_zmq_sub.left_ori['x'], self.vive_zmq_sub.left_ori['y'], self.vive_zmq_sub.left_ori['z'], self.vive_zmq_sub.left_ori['w']]
         matrix[:3,:3]=R.from_quat(quat).as_matrix()
+
+        # print("receive: ",self.vive_zmq_sub.update)
         return matrix
+
 
     @property
     def right_hand(self):
@@ -254,19 +277,33 @@ class MocapData:
     @property
     def right_short_skeleton(self):
         return self.manus_zmq_sub.right_short_skeleton
+    
+    @property
+    def left_full_skeleton(self):
+        return self.manus_zmq_sub.left_full_skeleton
+    
+    @property
+    def right_full_skeleton(self):
+        return self.manus_zmq_sub.right_full_skeleton
 
 
 
 LEFT_VIVE_TO_WRIST = np.array([
-    [ 0, 0, -1],
-    [ 0, 1, 0],
-    [ 1, 0, 0]
+    [ 1, 0, 0],
+    [ 0, -1, 0],
+    [ 0, 0, -1]
 ])
 
 RIGHT_VIVE_TO_WRIST = np.array([
-    [ 0, 0, -1],
+    [ 1, 0, 0],
     [ 0, -1, 0],
-    [ -1, 0, 0]
+    [ 0, 0, -1]
+])
+
+HEAD_VIVE_TO_CAMERA = np.array([
+    [ -1, 0, 0],
+    [ 0, 0, 1],
+    [ 0, 1, 0]
 ])
 
 class MocapTeleVisionWrapper:
@@ -276,35 +313,37 @@ class MocapTeleVisionWrapper:
         self.waist_yaw_ori=0.0
 
     def get_data(self):
-        T = np.array([[0, 0, 1], 
-                      [1, 0, 0],
-                      [0, 1, 0]])
+        T = np.array([[1, 0, 0], 
+                      [0, 1, 0],
+                      [0, 0, 1]])
         # --------------------------------wrist-------------------------------------
         left_hand_pose = self.tv.left_hand
+        # print("left_hand_pose:", left_hand_pose)
         right_hand_pose = self.tv.right_hand
         head_matrix = np.copy(self.tv.head_matrix)
 
-        # waist_angles = R.from_matrix(head_matrix[:3,:3]).as_euler('xyz', degrees=False)
+        # waist_angles = R.from_matrix(head_m atrix[:3,:3]).as_euler('xyz', degrees=False)
         # waist_yaw=waist_angles[1] #get from from test
         # waist_yaw_delta=waist_yaw-self.waist_yaw_ori
         # self.waist_yaw_ori=waist_yaw
 
-
+        # unitree_left_wrist = left_hand_pose
+        # unitree_right_wrist = right_hand_pose
         left_hand_pose[:3, :] = np.dot(T, left_hand_pose[:3, :])
         right_hand_pose[:3, :] = np.dot(T, right_hand_pose[:3, :])
-        head_matrix[:3, : ] = np.dot(T, head_matrix[:3, :])
-        
+        head_matrix[:3, :] = np.dot(T, head_matrix[:3, :])
+        head_matrix[:3, :3] = np.dot(head_matrix[:3, :3], HEAD_VIVE_TO_CAMERA.T)
         left_hand_pose[:3, :3] = np.dot(left_hand_pose[:3, :3], LEFT_VIVE_TO_WRIST.T)
         right_hand_pose[:3, :3] = np.dot(right_hand_pose[:3, :3], RIGHT_VIVE_TO_WRIST.T)
         
-        # Transfer from WORLD to HEAD coordinate (translation only).
-        unitree_left_wrist = np.copy(left_hand_pose)
-        unitree_right_wrist = np.copy(right_hand_pose)
-        unitree_left_wrist[0:3, 3]  = unitree_left_wrist[0:3, 3] - head_matrix[0:3, 3]
-        unitree_right_wrist[0:3, 3] = unitree_right_wrist[0:3, 3] - head_matrix[0:3, 3]
+        # # Transfer from WORLD to HEAD coordinate (translation only).
+        # unitree_left_wrist = np.copy(left_hand_pose)
+        # unitree_right_wrist = np.copy(right_hand_pose)
+        # unitree_left_wrist[0:3, 3]  = unitree_left_wrist[0:3, 3] - head_matrix[0:3, 3]
+        # unitree_right_wrist[0:3, 3] = unitree_right_wrist[0:3, 3] - head_matrix[0:3, 3]
 
-        unitree_left_hand=self.tv.left_finger.copy()
-        unitree_right_hand=self.tv.right_finger.copy()
+        # unitree_left_hand=self.tv.left_finger.copy()
+        # unitree_right_hand=self.tv.right_finger.copy()
 
         # --------------------------------offset-------------------------------------
 
@@ -312,14 +351,14 @@ class MocapTeleVisionWrapper:
         head_rmat = head_matrix
         # The origin of the coordinate for IK Solve is the WAIST joint motor. You can use teleop/robot_control/robot_arm_ik.py Unit_Test to check it.
         # The origin of the coordinate of unitree_left_wrist is HEAD. So it is necessary to translate the origin of unitree_left_wrist from HEAD to WAIST.
-        unitree_left_wrist[0, 3] +=0.05
-        unitree_right_wrist[0,3] +=0.05
+        # unitree_left_wrist[0, 3] +=0.05
+        # unitree_right_wrist[0,3] +=0.05
 
-        unitree_left_wrist[1, 3] -=0.05
-        unitree_right_wrist[1,3] +=0.05
+        # unitree_left_wrist[1, 3] -=0.05
+        # unitree_right_wrist[1,3] +=0.05
 
-        unitree_left_wrist[2, 3] +=0.35
-        unitree_right_wrist[2,3] +=0.35
+        # unitree_left_wrist[2, 3] +=0.35
+        # unitree_right_wrist[2,3] +=0.35
 
         # unitree_left_hand_joints = np.deg2rad([3 * unitree_left_hand[0], 0.7 * unitree_left_hand[3], 1.15 * (unitree_left_hand[5]+unitree_left_hand[6]+unitree_left_hand[7])/3, 1.05 * (unitree_left_hand[9]+unitree_left_hand[10]+unitree_left_hand[11])/3, 1.25 * (unitree_left_hand[13]+unitree_left_hand[14]+unitree_left_hand[15])/3, 1.45 * (unitree_left_hand[17]+unitree_left_hand[18]+unitree_left_hand[19])/3])
         # unitree_right_hand_joints = np.deg2rad([3 * unitree_right_hand[0], 0.7 * unitree_right_hand[3], 1.15 * (unitree_right_hand[5]+unitree_right_hand[6]+unitree_right_hand[7])/3, 1.05 * (unitree_right_hand[9]+unitree_right_hand[10]+unitree_right_hand[11])/3, 1.25 * (unitree_right_hand[13]+unitree_right_hand[14]+unitree_right_hand[15])/3, 1.45 * (unitree_right_hand[17]+unitree_right_hand[18]+unitree_right_hand[19])/3])
@@ -330,16 +369,31 @@ class MocapTeleVisionWrapper:
         head_pos = matrix_to_pose(head_rmat)
         head_p = np.array(head_pos, dtype=np.float32).tolist()  # 转换为 float32 再转 list
 
-        left_pos = matrix_to_pose(unitree_left_wrist)
+        left_pos = matrix_to_pose(left_hand_pose)
         left_p = np.array(left_pos, dtype=np.float32).tolist()  # 转换为 float32 再转 list
 
-        right_pos = matrix_to_pose(unitree_right_wrist)
+        right_pos = matrix_to_pose(right_hand_pose)
         right_p = np.array(right_pos, dtype=np.float32).tolist()  # 转换为 float32 再转 list
 
         tip_indices = [0, 2, 4, 6, 8]
-        unitree_left_short_skeleton = np.array(unitree_left_short_skeleton, dtype=np.float32)[tip_indices].reshape(-1)
-        unitree_right_short_skeleton = np.array(unitree_right_short_skeleton, dtype=np.float32)[tip_indices].reshape(-1)
-        return head_p, left_p, right_p, unitree_left_short_skeleton, unitree_right_short_skeleton
+        unitree_left_short_skeleton = np.array(unitree_left_short_skeleton, dtype=np.float32)[tip_indices]
+        unitree_right_short_skeleton = np.array(unitree_right_short_skeleton, dtype=np.float32)[tip_indices]
+        for i in range(5):
+            unitree_left_short_skeleton[i][1] = -unitree_left_short_skeleton[i][1]
+            unitree_right_short_skeleton[i][1] = -unitree_right_short_skeleton[i][1]
+        unitree_left_short_skeleton = unitree_left_short_skeleton.reshape(-1).tolist()
+        unitree_right_short_skeleton = unitree_right_short_skeleton.reshape(-1).tolist()
+
+        unitree_left_full_skeleton = self.tv.left_full_skeleton.copy()
+        unitree_right_full_skeleton = self.tv.right_full_skeleton.copy()
+        unitree_left_full_skeleton = np.array(unitree_left_full_skeleton, dtype=np.float32)
+        unitree_right_full_skeleton = np.array(unitree_right_full_skeleton, dtype=np.float32)
+        for i in range(25):
+            unitree_left_full_skeleton[i][1] = -unitree_left_full_skeleton[i][1]
+            unitree_right_full_skeleton[i][1] = -unitree_right_full_skeleton[i][1]
+        unitree_left_full_skeleton = unitree_left_full_skeleton.reshape(-1).tolist()
+        unitree_right_full_skeleton = unitree_right_full_skeleton.reshape(-1).tolist()
+        return head_p, left_p, right_p, unitree_left_short_skeleton, unitree_right_short_skeleton, unitree_left_full_skeleton, unitree_right_full_skeleton
 
 
 class MocapUpperBodyTeleVisionWrapper:
@@ -402,14 +456,31 @@ class MocapUpperBodyTeleVisionWrapper:
         return head_position, head_rmat, unitree_left_wrist, unitree_right_wrist, waist_angles, unitree_left_short_skeleton, unitree_right_short_skeleton
 
 demo=MocapTeleVisionWrapper()
-# while(1):
-#     # print(demo.get_data())
-#     demo.get_data()
-#     continue
-head_pose,left_wrist_pose,right_wrist_pose,left_finger_joints,right_finger_joints = demo.get_data()
-print(head_pose) 
-print(left_wrist_pose) 
-print(right_wrist_pose) 
-print(left_finger_joints) 
-print(right_finger_joints) 
+# # # while(1):
+# # #     # print(demo.get_data())
+# # #     demo.get_data()
+# # #     continue
+# # start = time.time()
+time.sleep(1)
+# head_pose,left_wrist_pose,right_wrist_pose,left_finger_joints,right_finger_joints,left_full,right_full = demo.get_data()
+# old_joints=right_finger_joints
+while(1):
+    # t1=time.time()
+    head_pose,left_wrist_pose,right_wrist_pose,left_finger_joints,right_finger_joints,left_full,right_full = demo.get_data()
 
+    ##according to trial, manus finger hz>50
+    # end = time.time()
+    # print("delata t for record: ",end-t1)
+    # print("frequency:", 1.0 / (end - start))
+    # start = time.time()
+    # print(head_pose) 
+    # print(len(left_full)) 
+    # print(right_wrist_pose) 
+    # print(left_wrist_pose) 
+    # print(left_wrist_pose[0], left_finger_joints[0])
+    
+    
+    print("delta right fingers: ",np.array(right_finger_joints)-np.array(old_joints))
+    old_joints=right_finger_joints
+    # time.sleep(0.033)
+    time.sleep(0.05) ##

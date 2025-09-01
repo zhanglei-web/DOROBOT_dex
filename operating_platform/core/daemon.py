@@ -95,15 +95,16 @@ class Daemon:
 
     def update(self):
         # while self.running:
+        # print(time.time())
         start_loop_t = time.perf_counter()
-
+        
         observation, action = self.robot.teleop_step(record_data=True)
-
         # if observation is not None:
         #     self.observation = observation.copy()
 
         # if action is not None:
         #     self.obs_action = action.copy()
+
         self.set_observation(observation)
         self.set_obs_action(action)
 
@@ -115,9 +116,11 @@ class Daemon:
             action = {"action": action}
         
         dt_s = time.perf_counter() - start_loop_t
-
+        # print(dt_s)
         if self.fps is not None:
-            busy_wait(1 / self.fps - dt_s)
+            busy_wait(0.1*(1.0 / self.fps - dt_s))
+            # print(1.0 / self.fps - dt_s)
+            # print(1)
 
         log_control_info(self.robot, dt_s, fps=self.fps)
 

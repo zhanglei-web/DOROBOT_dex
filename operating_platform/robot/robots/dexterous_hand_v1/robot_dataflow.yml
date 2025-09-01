@@ -3,35 +3,74 @@ nodes:
   - id: teleop_data_collector  
     path: ../../components/teleop_data_collector/main.py  
     inputs:  
-      tick: dora/timer/millis/33  
+      tick: dora/timer/millis/50  
     outputs: 
       - head_pose
       - left_wrist_pose  
       - right_wrist_pose  
       - left_finger_joints  
-      - right_finger_joints  
+      - right_finger_joints
+      - left_full_skeleton
+      - right_full_skeleton  
   
-  - id: camera_realsense  
-    path: ../../components/camera_rgbd_realsense/main.py  
+  # - id: camera_realsense  
+  #   path: ../../components/camera_rgbd_realsense/main.py  
+  #   inputs:  
+  #     tick: dora/timer/millis/33  
+  #   outputs:  
+  #     - image  
+  #     - depth  
+  #   env:  
+  #     DEVICE_SERIAL: 337122071807
+  #     IMAGE_WIDTH: 640  
+  #     IMAGE_HEIGHT: 480 
+  #     # ENCODING: bgr8
+
+  - id: camera_zed  
+    path: ../../components/camera_rgbd_zed/main.py  
     inputs:  
-      tick: dora/timer/millis/33  
+      tick: dora/timer/millis/50  
     outputs:  
-      - image  
-      - depth  
+      - left_image  
+      - right_image  
     env:  
-      DEVICE_SERIAL: 337122071807
+#      DEVICE_SERIAL: 
       IMAGE_WIDTH: 640  
       IMAGE_HEIGHT: 480 
-      # ENCODING: bgr8
-
+      ENCODING: bgr8 
   
  
-  - id: zeromq  
-    path: dora_zeromq.py  
+  - id: zeromq_pose  
+    path: dora_zeromq_pose.py  
     inputs:
       head_pose: teleop_data_collector/head_pose
       wrist_left: teleop_data_collector/left_wrist_pose  
       wrist_right: teleop_data_collector/right_wrist_pose  
       finger_left: teleop_data_collector/left_finger_joints  
-      finger_right: teleop_data_collector/right_finger_joints  
-      image: camera_realsense/image
+      finger_right: teleop_data_collector/right_finger_joints
+      left_full_skeleton: teleop_data_collector/left_full_skeleton 
+      right_full_skeleton: teleop_data_collector/right_full_skeleton 
+
+  - id: zeromq_image  
+    path: dora_zeromq_image.py  
+    inputs: 
+      left_image: camera_zed/left_image
+      right_image: camera_zed/right_image
+
+  - id: zeromq_plot  
+    path: dora_zeromq_plot.py  
+    inputs:
+      head_pose: teleop_data_collector/head_pose
+      wrist_left: teleop_data_collector/left_wrist_pose  
+      wrist_right: teleop_data_collector/right_wrist_pose  
+      finger_left: teleop_data_collector/left_finger_joints  
+      finger_right: teleop_data_collector/right_finger_joints
+      left_full_skeleton: teleop_data_collector/left_full_skeleton 
+      right_full_skeleton: teleop_data_collector/right_full_skeleton
+
+
+
+
+
+
+

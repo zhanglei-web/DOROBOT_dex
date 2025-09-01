@@ -145,6 +145,7 @@ class Record:
                 start_loop_t = time.perf_counter()
 
                 observation = self.daemon.get_observation()
+                print(observation['observation.state.wrist'])
                 action = self.daemon.get_obs_action()
 
                 frame = {**observation, **action, "task": self.record_cfg.single_task}
@@ -154,6 +155,7 @@ class Record:
 
                 if self.fps is not None:
                     busy_wait(1 / self.fps - dt_s)
+                    # print(1 / self.fps - dt_s)
 
 
     def stop(self):
@@ -197,7 +199,7 @@ class Record:
                 "camera_frame_rate": "pass",
             }
         }
-
+        
         self.record_complete = True
         self.last_record_episode_index = episode_index
 
